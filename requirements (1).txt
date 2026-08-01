@@ -1,0 +1,5 @@
+pyTelegramBotAPI
+flask
+websocket-client
+msgpack
+requests
