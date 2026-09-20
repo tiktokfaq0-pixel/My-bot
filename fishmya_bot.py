@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-FishMya Game - Auto Scan + Exploit Bot (Self-Restart)
+FishMya Game - Auto Scan + Exploit Bot (Fixed Exploit Loop)
 Author: GHOST
-Version: 18.0 - Auto Start, Auto Restart, Continuous with RPS Test
+Version: 19.0
 """
 
 import asyncio
@@ -218,8 +218,9 @@ def connect_and_login():
         ws = websocket.create_connection(
             WS_URL,
             header=WS_HEADERS,
-            sslopt={"cert_reqs": ssl.CERT_NONE},
-            timeout=30
+            sslopt={"cert_reqs": ssl.CERT_NONE, "check_hostname": False},
+            timeout=30,
+            enable_multithread=True,
         )
         ws.send(msgpack.packb({
             "route": "mytelLogin",
@@ -236,36 +237,38 @@ def connect_and_login():
                     if inner.get("ok"):
                         return ws, inner
                     else:
-                        ws.close()
+                        try:
+                            ws.close()
+                        except:
+                            pass
                         return None, None
             except websocket.WebSocketTimeoutException:
                 continue
             except:
                 break
-        ws.close()
+        try:
+            ws.close()
+        except:
+            pass
         return None, None
     except Exception as e:
         logger.error(f"Connection error: {e}")
         return None, None
 
-# ==================== TEST BEST ROUTE WITH 150 REQUESTS ====================
+# ==================== TEST BEST ROUTE ====================
 def test_best_route_performance(ws, best_route):
-    """Test best route with 150 requests and calculate coins per second"""
     if not ws or not ws.connected or not best_route:
         return None
-    
+
     logger.info(f"🧪 Testing best route: {best_route['desc']} with 150 requests...")
-    
     route_name = best_route['route']
     route_data = best_route['data']
     desc = best_route['desc']
-    
     total_coins = 0
     successful_requests = 0
     start_time = time.time()
-    
-    # Send 150 requests as fast as possible
     msg_id = 10000
+
     for i in range(150):
         try:
             ws.send(msgpack.packb({
@@ -276,37 +279,30 @@ def test_best_route_performance(ws, best_route):
             msg_id += 1
         except:
             break
-        
-        # Small delay to prevent overwhelming
         time.sleep(0.001)
-    
-    # Collect responses for 2 seconds
+
     ws.settimeout(0.5)
     response_end_time = time.time() + 2
-    coin_responses = []
-    
     while time.time() < response_end_time:
         try:
             m = ws.recv()
             d = msgpack.unpackb(m, raw=False)
             coins = extract_coins(d)
             if coins > 0:
-                coin_responses.append(coins)
                 total_coins += coins
                 successful_requests += 1
         except websocket.WebSocketTimeoutException:
             continue
         except:
             break
-    
+
     elapsed_time = time.time() - start_time
     if elapsed_time == 0:
         elapsed_time = 0.1
-    
-    # Calculate coins per second
+
     coins_per_second = int(total_coins / elapsed_time) if total_coins > 0 else 0
     requests_per_second = int(successful_requests / elapsed_time) if successful_requests > 0 else 0
-    
+
     result = {
         'route': desc,
         'total_requests': 150,
@@ -317,19 +313,11 @@ def test_best_route_performance(ws, best_route):
         'requests_per_second': requests_per_second,
         'avg_coins_per_request': int(total_coins / successful_requests) if successful_requests > 0 else 0
     }
-    
     bot_state['rps_test_result'] = result
-    
-    logger.info(f"📊 Test Result:")
-    logger.info(f"  Route: {desc}")
-    logger.info(f"  Total Coins: {total_coins}")
-    logger.info(f"  Time: {elapsed_time:.2f}s")
-    logger.info(f"  Coins/s: {coins_per_second}")
-    logger.info(f"  Requests/s: {requests_per_second}")
-    
+    logger.info(f"📊 Test Result: {desc} → {total_coins} coins, {coins_per_second} coins/s, {requests_per_second} rps")
     return result
 
-# ==================== SCAN (Improved with Best Route Test) ====================
+# ==================== SCAN ====================
 def scan_routes():
     global bot_state
     bot_state['scanning'] = True
@@ -338,40 +326,39 @@ def scan_routes():
     bot_state['best_route'] = None
     bot_state['best_route_coins'] = 0
     bot_state['total_coins_all'] = 0
-    
+
     ws, login_data = connect_and_login()
     if not ws or not login_data:
         bot_state['scanning'] = False
         return False
-    
+
     bot_state['login_ok'] = True
     bot_state['current_balance'] = login_data.get("cash", 0)
     bot_state['start_balance'] = login_data.get("cash", 0)
-    
+
     ws.send(msgpack.packb({
         "route": "play",
         "data": {"roomId": 1},
         "msgId": 2
     }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
     time.sleep(1)
-    
+
     msg_id = 1000
     found = []
     scan_stats = {}
-    
-    # 📊 Scan each route individually
+
     logger.info("🔍 Scanning individual routes...")
     for route_info in SCAN_ROUTES:
         route_name = route_info['route']
         route_data = route_info['data']
         desc = route_info['desc']
-        
+
         ws.send(msgpack.packb({
             "route": route_name,
             "data": route_data,
             "msgId": msg_id
         }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
-        
+
         ws.settimeout(0.5)
         coins_found = 0
         try:
@@ -392,8 +379,7 @@ def scan_routes():
         except:
             pass
         msg_id += 1
-        
-        # Check if repeatable
+
         repeatable = False
         if coins_found > 0:
             ws.send(msgpack.packb({
@@ -422,70 +408,67 @@ def scan_routes():
                 pass
             msg_id += 1
             repeatable = repeat_coins > 0
-        
-        # Store scan result
+
         scan_stats[desc] = {
             'coins': coins_found,
             'repeatable': repeatable,
             'route': route_name,
             'data': route_data
         }
-        
+
         if coins_found > 0:
             logger.info(f"📊 {desc}: {coins_found} coins (Repeat: {repeatable})")
             if repeatable:
                 found.append({'route': route_name, 'data': route_data, 'desc': desc,
-                             'coins': coins_found, 'repeatable': True})
-        
+                              'coins': coins_found, 'repeatable': True})
+
         time.sleep(0.05)
-    
-    # 📊 Find best route
+
     best_route = max(found, key=lambda x: x['coins']) if found else None
+    test_result = None
     if best_route:
         bot_state['best_route'] = best_route
         bot_state['best_route_coins'] = best_route['coins']
         logger.info(f"🏆 Best route: {best_route['desc']} - {best_route['coins']} coins")
-        
-        # 🧪 Test best route with 150 requests
         test_result = test_best_route_performance(ws, best_route)
         if test_result:
             bot_state['max_requests_per_second'] = test_result['requests_per_second']
             bot_state['coins_per_second'] = test_result['coins_per_second']
-    
-    # 📊 Calculate total coins if all routes used together
+
     total_all = sum(r['coins'] for r in found)
     bot_state['total_coins_all'] = total_all
     logger.info(f"📊 Total coins all routes: {total_all}")
-    
-    ws.close()
+
+    try:
+        ws.close()
+    except:
+        pass
+
     bot_state['found_routes'] = [r for r in found if r['repeatable']]
     bot_state['scan_results'] = scan_stats
     bot_state['scanning'] = False
-    
-    # Send scan summary to Telegram
+
     if owner_chat_id:
         summary = f"🔍 *Scan Complete!*\n\n"
         summary += f"🏆 Best Route: {best_route['desc'] if best_route else 'None'} - {bot_state['best_route_coins']} coins\n"
         summary += f"📊 Total All Routes: {total_all} coins\n"
         summary += f"📦 Found Routes: {len(bot_state['found_routes'])}\n\n"
-        
         if test_result:
             summary += f"🧪 *Test with 150 Requests:*\n"
             summary += f"  • Coins/s: {test_result['coins_per_second']:,}\n"
             summary += f"  • Requests/s: {test_result['requests_per_second']}\n"
             summary += f"  • Time: {test_result['elapsed_time']}s\n"
             summary += f"  • Total Coins: {test_result['total_coins']:,}\n"
-        
         asyncio.run(send_telegram(owner_chat_id, summary))
-    
+
     return len(bot_state['found_routes']) > 0
 
-# ==================== EXPLOIT ====================
+# ==================== EXPLOIT (FIXED) ====================
 def exploit_loop():
     global bot_state
     if not bot_state['found_routes']:
         return
-    
+
     bot_state['exploiting'] = True
     bot_state['is_running'] = True
     bot_state['total_claimed'] = 0
@@ -494,31 +477,22 @@ def exploit_loop():
     bot_state['auto_restart_count'] = 0
     bot_state['start_time'] = datetime.now()
     bot_state['route_stats'] = {}
-    
+
     for r in bot_state['found_routes']:
         bot_state['route_stats'][r['desc']] = {'sent': 0, 'received': 0, 'coins': 0}
-    
-    # Use best route for primary exploit
+
     best_route = bot_state['best_route']
-    
-    # Use RPS from test or default
     max_rps = bot_state.get('max_requests_per_second', 20)
     coins_per_sec = bot_state.get('coins_per_second', 0)
-    
-    # Calculate claims per route based on server capacity
-    CLAIMS_PER_ROUTE = max_rps * 60  # 1 minute per route
+    CLAIMS_PER_ROUTE = max(max_rps * 60, 150)
     total_claims = len(bot_state['found_routes']) * CLAIMS_PER_ROUTE
     bot_state['total_claims'] = total_claims
-    
-    # Set exploit strategy
+
     use_best_only = True
     cycle_count = 0
     last_stats_report = time.time()
     start_time = time.time()
-    last_coin_time = time.time()
-    coins_in_interval = 0
-    interval_start = time.time()
-    
+
     if owner_chat_id:
         exploit_msg = (
             f"⚡ *Exploit Started!*\n\n"
@@ -530,155 +504,180 @@ def exploit_loop():
             f"💡 Use *Status* button to check progress."
         )
         asyncio.run(send_telegram(owner_chat_id, exploit_msg, get_main_keyboard()))
-    
+
     while bot_state['is_running']:
         ws, login_data = connect_and_login()
         if not ws or not login_data:
             bot_state['errors'] += 1
             bot_state['last_error'] = "Login failed"
             bot_state['connected'] = False
-            logger.error("Login failed, retrying...")
-            time.sleep(3)
+            logger.error("Login failed, retrying in 5s...")
+            time.sleep(5)
             continue
-        
+
         bot_state['login_ok'] = True
         bot_state['connected'] = True
         bot_state['current_balance'] = login_data.get("cash", bot_state['current_balance'])
-        
-        ws.send(msgpack.packb({
-            "route": "play",
-            "data": {"roomId": 1},
-            "msgId": 2
-        }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
+
+        # enter room
+        try:
+            ws.send(msgpack.packb({
+                "route": "play",
+                "data": {"roomId": 1},
+                "msgId": 2
+            }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
+        except:
+            pass
         time.sleep(1)
-        
+
         msg_id = 5000
         last_coin_time = time.time()
         coins_in_interval = 0
         interval_start = time.time()
         request_count = 0
-        
+        connection_broken = False
+
         try:
-            while bot_state['is_running']:
-                if use_best_only and best_route:
-                    routes_to_use = [best_route]
-                else:
-                    routes_to_use = bot_state['found_routes']
-                
-                for route_info in routes_to_use:
-                    if not bot_state['is_running']:
-                        break
-                    
-                    # Send request
-                    ws.send(msgpack.packb({
-                        "route": route_info['route'],
-                        "data": route_info['data'],
-                        "msgId": msg_id
-                    }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
-                    request_count += 1
-                    msg_id += 1
-                    
-                    with state_lock:
-                        bot_state['route_stats'][route_info['desc']]['sent'] += 1
-                        bot_state['claims_done'] += 1
-                    
-                    # Check for responses
-                    ws.settimeout(0.001)
-                    try:
-                        while True:
-                            m = ws.recv()
-                            if m:
-                                d = msgpack.unpackb(m, raw=False)
-                                route = d.get("route", "")
-                                inner = d.get("data", {})
-                                
-                                if route == "reloadCash":
-                                    change = inner.get("changeCash", 0)
-                                    if change > 0:
-                                        with state_lock:
-                                            bot_state['total_claimed'] += change
-                                            bot_state['current_balance'] = inner.get("newCash", bot_state['current_balance'])
-                                            coins_in_interval += change
-                                            last_coin_time = time.time()
-                                        
-                                        for ri in bot_state['found_routes']:
-                                            if abs(change - ri['coins']) <= 50:
-                                                with state_lock:
-                                                    bot_state['route_stats'][ri['desc']]['received'] += 1
-                                                    bot_state['route_stats'][ri['desc']]['coins'] += change
-                                                break
-                    except websocket.WebSocketTimeoutException:
-                        pass
-                    except:
-                        pass
-                    
-                    # Calculate coins per second every 1 second
-                    if time.time() - interval_start >= 1.0:
-                        cps = coins_in_interval / (time.time() - interval_start)
+            while bot_state['is_running'] and not connection_broken:
+                routes_to_use = [best_route] if (use_best_only and best_route) else bot_state['found_routes']
+
+                # batch send
+                batch_size = max(1, min(10, max_rps // 10 if max_rps > 10 else 5))
+                for _ in range(batch_size):
+                    for route_info in routes_to_use:
+                        if not bot_state['is_running']:
+                            break
+                        try:
+                            ws.send(msgpack.packb({
+                                "route": route_info['route'],
+                                "data": route_info['data'],
+                                "msgId": msg_id
+                            }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
+                        except Exception as e:
+                            logger.error(f"Send error: {e}")
+                            connection_broken = True
+                            break
+                        request_count += 1
+                        msg_id += 1
                         with state_lock:
-                            bot_state['coins_per_second'] = cps
-                            bot_state['current_requests_per_second'] = request_count / (time.time() - start_time) if start_time else 0
-                        coins_in_interval = 0
-                        interval_start = time.time()
-                        request_count = 0
-                        
-                        # Send status update every 30 seconds
-                        if time.time() - last_stats_report >= 30:
-                            last_stats_report = time.time()
-                            if owner_chat_id:
-                                elapsed = time.time() - start_time
-                                status_text = (
-                                    f"⚡ *Exploit Running*\n\n"
-                                    f"⏱️ Elapsed: {int(elapsed)}s\n"
-                                    f"💰 Gained: {bot_state['total_claimed']:,}\n"
-                                    f"📈 CPS: {int(cps)}\n"
-                                    f"🚀 RPS: {int(bot_state['current_requests_per_second'])}\n"
-                                    f"📦 Routes: {len(bot_state['found_routes'])}"
-                                )
-                                asyncio.run(send_telegram(owner_chat_id, status_text))
-                    
-                    # Check if coins stopped
-                    if time.time() - last_coin_time > 15:
-                        logger.warning("⚠️ Coins stopped! Restarting...")
-                        bot_state['auto_restart_count'] += 1
+                            bot_state['route_stats'][route_info['desc']]['sent'] += 1
+                            bot_state['claims_done'] += 1
+                    if connection_broken:
                         break
-                    
-                    # Small delay to respect server capacity
-                    time.sleep(0.001)
-                
+
+                if connection_broken:
+                    break
+
+                # recv window
+                ws.settimeout(0.05)
+                recv_end = time.time() + 0.3
+                while time.time() < recv_end:
+                    try:
+                        m = ws.recv()
+                        if not m:
+                            continue
+                        d = msgpack.unpackb(m, raw=False)
+                        route = d.get("route", "")
+                        inner = d.get("data", {})
+                        if route == "reloadCash":
+                            change = inner.get("changeCash", 0)
+                            if change > 0:
+                                with state_lock:
+                                    bot_state['total_claimed'] += change
+                                    bot_state['current_balance'] = inner.get("newCash", bot_state['current_balance'])
+                                    coins_in_interval += change
+                                    last_coin_time = time.time()
+                                for ri in bot_state['found_routes']:
+                                    if abs(change - ri['coins']) <= 50:
+                                        with state_lock:
+                                            bot_state['route_stats'][ri['desc']]['received'] += 1
+                                            bot_state['route_stats'][ri['desc']]['coins'] += change
+                                        break
+                    except websocket.WebSocketTimeoutException:
+                        break
+                    except ssl.SSLError as e:
+                        logger.error(f"SSL error: {e}")
+                        connection_broken = True
+                        break
+                    except Exception as e:
+                        logger.error(f"Recv error: {e}")
+                        connection_broken = True
+                        break
+
+                if connection_broken:
+                    break
+
+                # CPS
+                if time.time() - interval_start >= 1.0:
+                    cps = coins_in_interval / (time.time() - interval_start)
+                    with state_lock:
+                        bot_state['coins_per_second'] = cps
+                        bot_state['current_requests_per_second'] = request_count / (time.time() - start_time) if start_time else 0
+                    coins_in_interval = 0
+                    interval_start = time.time()
+                    request_count = 0
+
+                    if time.time() - last_stats_report >= 30:
+                        last_stats_report = time.time()
+                        if owner_chat_id:
+                            elapsed = time.time() - start_time
+                            status_text = (
+                                f"⚡ *Exploit Running*\n\n"
+                                f"⏱️ Elapsed: {int(elapsed)}s\n"
+                                f"💰 Gained: {bot_state['total_claimed']:,}\n"
+                                f"📈 CPS: {int(cps)}\n"
+                                f"🚀 RPS: {int(bot_state['current_requests_per_second'])}\n"
+                                f"📦 Routes: {len(bot_state['found_routes'])}"
+                            )
+                            asyncio.run(send_telegram(owner_chat_id, status_text))
+
+                # Coins stopped check
+                if time.time() - last_coin_time > 30:
+                    logger.warning("⚠️ Coins stopped 30s! Reconnecting...")
+                    bot_state['auto_restart_count'] += 1
+                    connection_broken = True
+                    break
+
                 cycle_count += 1
-                if cycle_count % 10 == 0 and not use_best_only:
+                if cycle_count % 20 == 0 and not use_best_only:
                     best_coins = bot_state['route_stats'].get(best_route['desc'], {}).get('coins', 0) if best_route else 0
-                    other_coins = sum(s['coins'] for desc, s in bot_state['route_stats'].items() if desc != (best_route['desc'] if best_route else ''))
-                    
+                    other_coins = sum(s['coins'] for d, s in bot_state['route_stats'].items() if d != (best_route['desc'] if best_route else ''))
                     if best_coins >= other_coins * 1.5:
                         use_best_only = True
                         logger.info("🔄 Switching to best route only")
                     else:
                         use_best_only = False
                         logger.info("🔄 Using all routes")
-                        
+
+                time.sleep(0.01)
+
         except Exception as e:
             logger.error(f"Exploit error: {e}")
             bot_state['errors'] += 1
             bot_state['last_error'] = str(e)
             bot_state['auto_restart_count'] += 1
-        
         finally:
-            ws.close()
+            try:
+                ws.close()
+            except Exception:
+                pass
             bot_state['connected'] = False
-        
+
         if bot_state['is_running']:
             logger.info(f"🔄 Auto restart #{bot_state['auto_restart_count']}...")
-            time.sleep(2)
-    
+            time.sleep(5)
+
     bot_state['exploiting'] = False
 
 # ==================== AUTO MAIN LOOP ====================
 def auto_main_loop():
-    """Run scan and exploit continuously with auto-restart."""
     while True:
         try:
+            if not GAME_ACCESS_TOKEN:
+                logger.warning("Waiting for GAME_ACCESS_TOKEN...")
+                time.sleep(5)
+                continue
+
             logger.info("🔄 Starting scan...")
             success = scan_routes()
             if success:
@@ -695,58 +694,67 @@ def auto_main_loop():
 async def process_command(chat_id: str, text: str):
     global owner_chat_id
     text = text.strip()
+
     if text.startswith('/start'):
         if owner_chat_id is None:
             owner_chat_id = chat_id
+        best = bot_state.get('best_route')
+        best_desc = best.get('desc') if isinstance(best, dict) else 'None'
         status_text = (
             "🤖 *Auto FishMya Bot*\n\n"
-            f"🏆 Best Route: {bot_state.get('best_route', {}).get('desc', 'None')}\n"
-            f"💰 Balance: {bot_state['current_balance']:,}\n"
-            f"📈 Gained: +{bot_state['total_claimed']:,}\n"
+            f"🏆 Best Route: {best_desc}\n"
+            f"💰 Balance: {bot_state.get('current_balance', 0):,}\n"
+            f"📈 Gained: +{bot_state.get('total_claimed', 0):,}\n"
             f"📊 CPS: {int(bot_state.get('coins_per_second', 0)):,}\n"
             f"🚀 RPS: {int(bot_state.get('current_requests_per_second', 0))}\n\n"
             "Use buttons to control."
         )
         await send_telegram(chat_id, status_text, get_main_keyboard())
-    elif text in ['/stop']:
+
+    elif text == '/stop':
         bot_state['is_running'] = False
         await send_telegram(chat_id, "🛑 *Stopped by user.*")
-    elif text in ['/status']:
-        status = "🟢 Running" if bot_state['is_running'] else "🔴 Stopped"
-        elapsed = (datetime.now() - bot_state['start_time']).seconds if bot_state['start_time'] else 0
+
+    elif text == '/status':
+        status = "🟢 Running" if bot_state.get('is_running') else "🔴 Stopped"
+        elapsed = (datetime.now() - bot_state['start_time']).seconds if bot_state.get('start_time') else 0
+        best = bot_state.get('best_route')
+        best_desc = best.get('desc') if isinstance(best, dict) else 'None'
         text_msg = (
             f"📊 *Status*\n\n"
             f"State: {status}\n"
-            f"Routes: {len(bot_state['found_routes'])}\n"
-            f"Claims: {bot_state['claims_done']:,}\n"
-            f"💰 Balance: {bot_state['current_balance']:,}\n"
-            f"📈 Gained: +{bot_state['total_claimed']:,}\n"
+            f"🏆 Best: {best_desc}\n"
+            f"Routes: {len(bot_state.get('found_routes', []))}\n"
+            f"Claims: {bot_state.get('claims_done', 0):,}\n"
+            f"💰 Balance: {bot_state.get('current_balance', 0):,}\n"
+            f"📈 Gained: +{bot_state.get('total_claimed', 0):,}\n"
             f"📈 CPS: {int(bot_state.get('coins_per_second', 0)):,}\n"
             f"🚀 RPS: {int(bot_state.get('current_requests_per_second', 0))}\n"
-            f"🔄 Restarts: {bot_state['auto_restart_count']}\n"
+            f"🔄 Restarts: {bot_state.get('auto_restart_count', 0)}\n"
             f"⏱️ Elapsed: {elapsed}s"
         )
         await send_telegram(chat_id, text_msg, get_main_keyboard())
-    elif text in ['/balance']:
-        await send_telegram(chat_id, f"💰 Balance: {bot_state['current_balance']:,}\n📈 Gained: +{bot_state['total_claimed']:,}")
-    elif text in ['/stats']:
-        stats_text = f"📊 *Detailed Stats*\n\n"
-        stats_text += f"🏆 Best Route: {bot_state.get('best_route', {}).get('desc', 'None')} - {bot_state.get('best_route_coins', 0)} coins\n"
+
+    elif text == '/balance':
+        await send_telegram(chat_id, f"💰 Balance: {bot_state.get('current_balance', 0):,}\n📈 Gained: +{bot_state.get('total_claimed', 0):,}")
+
+    elif text == '/stats':
+        best = bot_state.get('best_route')
+        best_desc = best.get('desc') if isinstance(best, dict) else 'None'
+        stats_text = "📊 *Detailed Stats*\n\n"
+        stats_text += f"🏆 Best Route: {best_desc} - {bot_state.get('best_route_coins', 0)} coins\n"
         stats_text += f"📊 Total All Routes: {bot_state.get('total_coins_all', 0)} coins\n"
         stats_text += f"🚀 Max RPS: {bot_state.get('max_requests_per_second', 0)}\n"
         stats_text += f"📈 Current CPS: {int(bot_state.get('coins_per_second', 0)):,}\n"
-        
-        # Add test result
-        test_result = bot_state.get('rps_test_result', {})
+        test_result = bot_state.get('rps_test_result', {}) or {}
         if test_result:
-            stats_text += f"\n🧪 *Test with 150 Requests:*\n"
+            stats_text += "\n🧪 *Test with 150 Requests:*\n"
             stats_text += f"  • Coins/s: {test_result.get('coins_per_second', 0):,}\n"
             stats_text += f"  • Requests/s: {test_result.get('requests_per_second', 0)}\n"
             stats_text += f"  • Time: {test_result.get('elapsed_time', 0)}s\n"
             stats_text += f"  • Total Coins: {test_result.get('total_coins', 0):,}\n"
-        
-        stats_text += f"\n📊 Route Stats:\n"
-        for desc, s in bot_state.get('route_stats', {}).items():
+        stats_text += "\n📊 Route Stats:\n"
+        for desc, s in (bot_state.get('route_stats', {}) or {}).items():
             stats_text += f"  • {desc}: {s.get('coins', 0)} coins\n"
         await send_telegram(chat_id, stats_text, get_main_keyboard())
 
@@ -765,30 +773,39 @@ async def handle_callback(chat_id: str, data: str):
 async def main():
     global last_update_id, owner_chat_id
     print("Starting auto FishMya bot...")
-    
-    # Start auto scan/exploit in background thread
     threading.Thread(target=auto_main_loop, daemon=True).start()
-    
+
     while True:
         try:
             updates = await get_updates(last_update_id + 1)
             for update in updates:
-                if update.get('update_id', 0) > last_update_id:
-                    last_update_id = update['update_id']
-                if 'callback_query' in update:
-                    cb = update['callback_query']
-                    chat_id = str(cb.get('message', {}).get('chat', {}).get('id', ''))
+                if not isinstance(update, dict):
+                    continue
+
+                update_id = update.get('update_id', 0)
+                if update_id > last_update_id:
+                    last_update_id = update_id
+
+                cb = update.get('callback_query')
+                if isinstance(cb, dict):
+                    msg = cb.get('message') or {}
+                    chat = msg.get('chat') or {}
+                    chat_id = str(chat.get('id', ''))
                     data = cb.get('data', '')
                     if chat_id and data:
                         await handle_callback(chat_id, data)
-                if 'message' in update:
-                    msg = update['message']
-                    chat_id = str(msg.get('chat', {}).get('id', ''))
+                    continue
+
+                msg = update.get('message')
+                if isinstance(msg, dict):
+                    chat = msg.get('chat') or {}
+                    chat_id = str(chat.get('id', ''))
                     text = msg.get('text', '')
                     if chat_id and text:
                         if owner_chat_id is None:
                             owner_chat_id = chat_id
                         await process_command(chat_id, text)
+
             await asyncio.sleep(2)
         except KeyboardInterrupt:
             bot_state['is_running'] = False
