@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-FishMya Game - Auto Scan + Exploit Bot (Fixed Exploit Loop)
+FishMya Game - Auto Scan + Exploit Bot (Self-Restart)
 Author: GHOST
-Version: 19.0
+Version: 18.1 - Fixed Exploit Loop Only
 """
 
 import asyncio
@@ -212,15 +212,14 @@ def get_main_keyboard():
         ]
     })
 
-# ==================== CONNECT & LOGIN ====================
+# ==================== CONNECT & LOGIN (UNCHANGED) ====================
 def connect_and_login():
     try:
         ws = websocket.create_connection(
             WS_URL,
             header=WS_HEADERS,
-            sslopt={"cert_reqs": ssl.CERT_NONE, "check_hostname": False},
-            timeout=30,
-            enable_multithread=True,
+            sslopt={"cert_reqs": ssl.CERT_NONE},
+            timeout=30
         )
         ws.send(msgpack.packb({
             "route": "mytelLogin",
@@ -237,29 +236,22 @@ def connect_and_login():
                     if inner.get("ok"):
                         return ws, inner
                     else:
-                        try:
-                            ws.close()
-                        except:
-                            pass
+                        ws.close()
                         return None, None
             except websocket.WebSocketTimeoutException:
                 continue
             except:
                 break
-        try:
-            ws.close()
-        except:
-            pass
+        ws.close()
         return None, None
     except Exception as e:
         logger.error(f"Connection error: {e}")
         return None, None
 
-# ==================== TEST BEST ROUTE ====================
+# ==================== TEST BEST ROUTE (UNCHANGED) ====================
 def test_best_route_performance(ws, best_route):
     if not ws or not ws.connected or not best_route:
         return None
-
     logger.info(f"🧪 Testing best route: {best_route['desc']} with 150 requests...")
     route_name = best_route['route']
     route_data = best_route['data']
@@ -268,7 +260,6 @@ def test_best_route_performance(ws, best_route):
     successful_requests = 0
     start_time = time.time()
     msg_id = 10000
-
     for i in range(150):
         try:
             ws.send(msgpack.packb({
@@ -280,7 +271,6 @@ def test_best_route_performance(ws, best_route):
         except:
             break
         time.sleep(0.001)
-
     ws.settimeout(0.5)
     response_end_time = time.time() + 2
     while time.time() < response_end_time:
@@ -295,14 +285,11 @@ def test_best_route_performance(ws, best_route):
             continue
         except:
             break
-
     elapsed_time = time.time() - start_time
     if elapsed_time == 0:
         elapsed_time = 0.1
-
     coins_per_second = int(total_coins / elapsed_time) if total_coins > 0 else 0
     requests_per_second = int(successful_requests / elapsed_time) if successful_requests > 0 else 0
-
     result = {
         'route': desc,
         'total_requests': 150,
@@ -317,7 +304,7 @@ def test_best_route_performance(ws, best_route):
     logger.info(f"📊 Test Result: {desc} → {total_coins} coins, {coins_per_second} coins/s, {requests_per_second} rps")
     return result
 
-# ==================== SCAN ====================
+# ==================== SCAN (UNCHANGED) ====================
 def scan_routes():
     global bot_state
     bot_state['scanning'] = True
@@ -439,11 +426,7 @@ def scan_routes():
     bot_state['total_coins_all'] = total_all
     logger.info(f"📊 Total coins all routes: {total_all}")
 
-    try:
-        ws.close()
-    except:
-        pass
-
+    ws.close()
     bot_state['found_routes'] = [r for r in found if r['repeatable']]
     bot_state['scan_results'] = scan_stats
     bot_state['scanning'] = False
@@ -463,7 +446,7 @@ def scan_routes():
 
     return len(bot_state['found_routes']) > 0
 
-# ==================== EXPLOIT (FIXED) ====================
+# ==================== EXPLOIT (FIXED ONLY THIS) ====================
 def exploit_loop():
     global bot_state
     if not bot_state['found_routes']:
@@ -541,7 +524,7 @@ def exploit_loop():
             while bot_state['is_running'] and not connection_broken:
                 routes_to_use = [best_route] if (use_best_only and best_route) else bot_state['found_routes']
 
-                # batch send
+                # --- Send batch ---
                 batch_size = max(1, min(10, max_rps // 10 if max_rps > 10 else 5))
                 for _ in range(batch_size):
                     for route_info in routes_to_use:
@@ -568,7 +551,7 @@ def exploit_loop():
                 if connection_broken:
                     break
 
-                # recv window
+                # --- Receive window ---
                 ws.settimeout(0.05)
                 recv_end = time.time() + 0.3
                 while time.time() < recv_end:
@@ -607,7 +590,7 @@ def exploit_loop():
                 if connection_broken:
                     break
 
-                # CPS
+                # --- CPS every 1s ---
                 if time.time() - interval_start >= 1.0:
                     cps = coins_in_interval / (time.time() - interval_start)
                     with state_lock:
@@ -631,7 +614,7 @@ def exploit_loop():
                             )
                             asyncio.run(send_telegram(owner_chat_id, status_text))
 
-                # Coins stopped check
+                # --- Coins stopped 30s ---
                 if time.time() - last_coin_time > 30:
                     logger.warning("⚠️ Coins stopped 30s! Reconnecting...")
                     bot_state['auto_restart_count'] += 1
@@ -669,15 +652,10 @@ def exploit_loop():
 
     bot_state['exploiting'] = False
 
-# ==================== AUTO MAIN LOOP ====================
+# ==================== AUTO MAIN LOOP (UNCHANGED) ====================
 def auto_main_loop():
     while True:
         try:
-            if not GAME_ACCESS_TOKEN:
-                logger.warning("Waiting for GAME_ACCESS_TOKEN...")
-                time.sleep(5)
-                continue
-
             logger.info("🔄 Starting scan...")
             success = scan_routes()
             if success:
@@ -690,11 +668,10 @@ def auto_main_loop():
             logger.error(f"Auto loop error: {e}")
             time.sleep(5)
 
-# ==================== TELEGRAM HANDLERS ====================
+# ==================== TELEGRAM HANDLERS (UNCHANGED) ====================
 async def process_command(chat_id: str, text: str):
     global owner_chat_id
     text = text.strip()
-
     if text.startswith('/start'):
         if owner_chat_id is None:
             owner_chat_id = chat_id
@@ -710,35 +687,28 @@ async def process_command(chat_id: str, text: str):
             "Use buttons to control."
         )
         await send_telegram(chat_id, status_text, get_main_keyboard())
-
-    elif text == '/stop':
+    elif text in ['/stop']:
         bot_state['is_running'] = False
         await send_telegram(chat_id, "🛑 *Stopped by user.*")
-
-    elif text == '/status':
-        status = "🟢 Running" if bot_state.get('is_running') else "🔴 Stopped"
-        elapsed = (datetime.now() - bot_state['start_time']).seconds if bot_state.get('start_time') else 0
-        best = bot_state.get('best_route')
-        best_desc = best.get('desc') if isinstance(best, dict) else 'None'
+    elif text in ['/status']:
+        status = "🟢 Running" if bot_state['is_running'] else "🔴 Stopped"
+        elapsed = (datetime.now() - bot_state['start_time']).seconds if bot_state['start_time'] else 0
         text_msg = (
             f"📊 *Status*\n\n"
             f"State: {status}\n"
-            f"🏆 Best: {best_desc}\n"
-            f"Routes: {len(bot_state.get('found_routes', []))}\n"
-            f"Claims: {bot_state.get('claims_done', 0):,}\n"
-            f"💰 Balance: {bot_state.get('current_balance', 0):,}\n"
-            f"📈 Gained: +{bot_state.get('total_claimed', 0):,}\n"
+            f"Routes: {len(bot_state['found_routes'])}\n"
+            f"Claims: {bot_state['claims_done']:,}\n"
+            f"💰 Balance: {bot_state['current_balance']:,}\n"
+            f"📈 Gained: +{bot_state['total_claimed']:,}\n"
             f"📈 CPS: {int(bot_state.get('coins_per_second', 0)):,}\n"
             f"🚀 RPS: {int(bot_state.get('current_requests_per_second', 0))}\n"
-            f"🔄 Restarts: {bot_state.get('auto_restart_count', 0)}\n"
+            f"🔄 Restarts: {bot_state['auto_restart_count']}\n"
             f"⏱️ Elapsed: {elapsed}s"
         )
         await send_telegram(chat_id, text_msg, get_main_keyboard())
-
-    elif text == '/balance':
-        await send_telegram(chat_id, f"💰 Balance: {bot_state.get('current_balance', 0):,}\n📈 Gained: +{bot_state.get('total_claimed', 0):,}")
-
-    elif text == '/stats':
+    elif text in ['/balance']:
+        await send_telegram(chat_id, f"💰 Balance: {bot_state['current_balance']:,}\n📈 Gained: +{bot_state['total_claimed']:,}")
+    elif text in ['/stats']:
         best = bot_state.get('best_route')
         best_desc = best.get('desc') if isinstance(best, dict) else 'None'
         stats_text = "📊 *Detailed Stats*\n\n"
@@ -769,19 +739,17 @@ async def handle_callback(chat_id: str, data: str):
     elif data == "stats":
         await process_command(chat_id, "/stats")
 
-# ==================== MAIN ====================
+# ==================== MAIN (UNCHANGED) ====================
 async def main():
     global last_update_id, owner_chat_id
     print("Starting auto FishMya bot...")
     threading.Thread(target=auto_main_loop, daemon=True).start()
-
     while True:
         try:
             updates = await get_updates(last_update_id + 1)
             for update in updates:
                 if not isinstance(update, dict):
                     continue
-
                 update_id = update.get('update_id', 0)
                 if update_id > last_update_id:
                     last_update_id = update_id
@@ -805,7 +773,6 @@ async def main():
                         if owner_chat_id is None:
                             owner_chat_id = chat_id
                         await process_command(chat_id, text)
-
             await asyncio.sleep(2)
         except KeyboardInterrupt:
             bot_state['is_running'] = False
