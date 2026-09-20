@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-FishMya Game - Auto Scan + Exploit Bot (Self-Restart)
+FishMya Game - Auto Scan + Exploit Bot (Self-Restart + Keep-Alive)
 Author: GHOST
-Version: 18.1 - Fixed Exploit Loop Only
+Version: 18.2 - Fixed Exploit Loop with Keep-Alive Ping
 """
 
 import asyncio
@@ -446,7 +446,7 @@ def scan_routes():
 
     return len(bot_state['found_routes']) > 0
 
-# ==================== EXPLOIT (FIXED ONLY THIS) ====================
+# ==================== EXPLOIT (FIXED WITH KEEP-ALIVE) ====================
 def exploit_loop():
     global bot_state
     if not bot_state['found_routes']:
@@ -519,6 +519,24 @@ def exploit_loop():
         interval_start = time.time()
         request_count = 0
         connection_broken = False
+        ping_stop = threading.Event()
+
+        # ---- Keep-alive ping thread (server ကို online ဖြစ်နေကြောင်း အမြဲနှိုးဆော်) ----
+        def keep_alive_ping():
+            while not ping_stop.is_set():
+                try:
+                    if ws and ws.connected:
+                        ws.send(msgpack.packb({
+                            "route": "ping",
+                            "data": {},
+                            "msgId": 0
+                        }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
+                except Exception:
+                    pass
+                time.sleep(3)
+
+        ping_thread = threading.Thread(target=keep_alive_ping, daemon=True)
+        ping_thread.start()
 
         try:
             while bot_state['is_running'] and not connection_broken:
@@ -614,9 +632,9 @@ def exploit_loop():
                             )
                             asyncio.run(send_telegram(owner_chat_id, status_text))
 
-                # --- Coins stopped 30s ---
-                if time.time() - last_coin_time > 30:
-                    logger.warning("⚠️ Coins stopped 30s! Reconnecting...")
+                # --- Coins stopped 60s ---
+                if time.time() - last_coin_time > 60:
+                    logger.warning("⚠️ Coins stopped 60s! Reconnecting...")
                     bot_state['auto_restart_count'] += 1
                     connection_broken = True
                     break
@@ -640,6 +658,7 @@ def exploit_loop():
             bot_state['last_error'] = str(e)
             bot_state['auto_restart_count'] += 1
         finally:
+            ping_stop.set()
             try:
                 ws.close()
             except Exception:
