@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-FishMya Game - Auto Scan + Exploit Bot (Self-Restart + Keep-Alive)
+FishMya Game - Auto Scan + Exploit Bot (Full Fixed)
 Author: GHOST
-Version: 18.2 - Fixed Exploit Loop with Keep-Alive Ping
+Version: 18.3 - Fixed Login + Cooldown + Keep-Alive
 """
 
 import asyncio
@@ -212,7 +212,7 @@ def get_main_keyboard():
         ]
     })
 
-# ==================== CONNECT & LOGIN (UNCHANGED) ====================
+# ==================== CONNECT & LOGIN (FIXED) ====================
 def connect_and_login():
     try:
         ws = websocket.create_connection(
@@ -226,23 +226,36 @@ def connect_and_login():
             "data": {"accessToken": GAME_ACCESS_TOKEN, "language": "my"},
             "msgId": 1
         }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
-        ws.settimeout(10)
-        for _ in range(20):
+
+        ws.settimeout(15)
+        for _ in range(30):
             try:
                 m = ws.recv()
                 d = msgpack.unpackb(m, raw=False)
-                if d.get("msgId") == 1:
-                    inner = d.get("data", {})
+                inner = d.get("data", {})
+                if not isinstance(inner, dict):
+                    inner = {}
+
+                # msgId: 1 သို့မဟုတ် route: mytelLogin နဲ့ စစ်
+                if d.get("msgId") == 1 or d.get("route") == "mytelLogin":
                     if inner.get("ok"):
                         return ws, inner
                     else:
-                        ws.close()
+                        logger.error(f"Login rejected: {inner}")
+                        try:
+                            ws.close()
+                        except:
+                            pass
                         return None, None
             except websocket.WebSocketTimeoutException:
                 continue
-            except:
+            except Exception as e:
+                logger.error(f"Login recv error: {e}")
                 break
-        ws.close()
+        try:
+            ws.close()
+        except:
+            pass
         return None, None
     except Exception as e:
         logger.error(f"Connection error: {e}")
@@ -426,7 +439,10 @@ def scan_routes():
     bot_state['total_coins_all'] = total_all
     logger.info(f"📊 Total coins all routes: {total_all}")
 
-    ws.close()
+    try:
+        ws.close()
+    except:
+        pass
     bot_state['found_routes'] = [r for r in found if r['repeatable']]
     bot_state['scan_results'] = scan_stats
     bot_state['scanning'] = False
@@ -446,7 +462,7 @@ def scan_routes():
 
     return len(bot_state['found_routes']) > 0
 
-# ==================== EXPLOIT (FIXED WITH KEEP-ALIVE) ====================
+# ==================== EXPLOIT (FIXED WITH COOLDOWN + KEEP-ALIVE) ====================
 def exploit_loop():
     global bot_state
     if not bot_state['found_routes']:
@@ -488,15 +504,19 @@ def exploit_loop():
         )
         asyncio.run(send_telegram(owner_chat_id, exploit_msg, get_main_keyboard()))
 
+    retry_delay = 5
     while bot_state['is_running']:
         ws, login_data = connect_and_login()
         if not ws or not login_data:
             bot_state['errors'] += 1
             bot_state['last_error'] = "Login failed"
             bot_state['connected'] = False
-            logger.error("Login failed, retrying in 5s...")
-            time.sleep(5)
+            logger.error(f"Login failed, retrying in {retry_delay}s...")
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay + 5, 30)
             continue
+        else:
+            retry_delay = 5
 
         bot_state['login_ok'] = True
         bot_state['connected'] = True
@@ -521,7 +541,7 @@ def exploit_loop():
         connection_broken = False
         ping_stop = threading.Event()
 
-        # ---- Keep-alive ping thread (server ကို online ဖြစ်နေကြောင်း အမြဲနှိုးဆော်) ----
+        # ---- Keep-alive ping thread ----
         def keep_alive_ping():
             while not ping_stop.is_set():
                 try:
@@ -667,18 +687,20 @@ def exploit_loop():
 
         if bot_state['is_running']:
             logger.info(f"🔄 Auto restart #{bot_state['auto_restart_count']}...")
-            time.sleep(5)
+            time.sleep(8)
 
     bot_state['exploiting'] = False
 
-# ==================== AUTO MAIN LOOP (UNCHANGED) ====================
+# ==================== AUTO MAIN LOOP (FIXED WITH COOLDOWN) ====================
 def auto_main_loop():
     while True:
         try:
             logger.info("🔄 Starting scan...")
             success = scan_routes()
             if success:
-                logger.info("✅ Scan found routes, starting exploit...")
+                logger.info("✅ Scan found routes. Cooling down 5s before exploit...")
+                time.sleep(5)
+                logger.info("⚡ Starting exploit...")
                 exploit_loop()
             else:
                 logger.warning("❌ Scan found no routes, restarting in 10s...")
