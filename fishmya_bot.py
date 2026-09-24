@@ -32,7 +32,7 @@ WS_HEADERS = [
 ]
 
 # ==================== RATE CONTROL ====================
-CALIBRATION_REQUESTS = 500      # စမ်းသပ်မယ့် request
+CALIBRATION_REQUESTS = 4000     # စမ်းသပ်မယ့် request
 MIN_ACCEPTED = 50               # အနည်းဆုံး လက်ခံရမယ့်အရေအတွက်
 INITIAL_RATE = 150              # Default rate
 RECALIBRATE_EVERY = 300         # 5 မိနစ်တစ်ခါ re-calibrate
@@ -301,8 +301,8 @@ def verify_pkg5():
 # ==================== CALIBRATION ====================
 def calibrate_rate(ws):
     """
-    Send 500 requests, count accepted, return (accepted, new_rate)
-    - accepted < 50 → retry with 500
+    Send 4000 requests, count accepted, return (accepted, new_rate)
+    - accepted < 50 → retry with 4000
     - accepted >= 50 → use accepted as new rate
     """
     logger.info(f"🧪 CALIBRATION: Sending {CALIBRATION_REQUESTS} requests...")
@@ -379,8 +379,8 @@ def calibrate_rate(ws):
 
     # ---- Decide new rate ----
     if accepted < MIN_ACCEPTED:
-        # လက်ခံမှု နည်း → 500 နဲ့ ပြန်စမ်း
-        logger.warning(f"⚠️ Accepted {accepted} < {MIN_ACCEPTED} → retry with 500")
+        # လက်ခံမှု နည်း → 4000 နဲ့ ပြန်စမ်း
+        logger.warning(f"⚠️ Accepted {accepted} < {MIN_ACCEPTED} → retry with {CALIBRATION_REQUESTS}")
         return accepted, CALIBRATION_REQUESTS
     else:
         # လက်ခံမှု ကောင်း → accepted ကို rate အဖြစ်သုံး
@@ -460,13 +460,13 @@ def exploit_loop():
                         f"⚡ Starting exploit..."
                     ))
             else:
-                logger.warning(f"❌ Calibration failed ({accepted}/500). Retry...")
+                logger.warning(f"❌ Calibration failed ({accepted}/{CALIBRATION_REQUESTS}). Retry...")
                 if owner_chat_id:
                     asyncio.run(send_telegram(
                         owner_chat_id,
                         f"⚠️ *Calibration Failed*\n\n"
                         f"Accepted only {accepted}/{CALIBRATION_REQUESTS}\n"
-                        f"🔄 Retrying with 500 again in 5s..."
+                        f"🔄 Retrying with {CALIBRATION_REQUESTS} again in 5s..."
                     ))
                 time.sleep(5)
 
@@ -538,7 +538,7 @@ def exploit_loop():
                                 f"📊 New Rate: *{new_rate}*"
                             ))
                     else:
-                        logger.warning(f"⚠️ Re-calib failed ({accepted}/500). Keep old rate.")
+                        logger.warning(f"⚠️ Re-calib failed ({accepted}/{CALIBRATION_REQUESTS}). Keep old rate.")
                         if owner_chat_id:
                             asyncio.run(send_telegram(
                                 owner_chat_id,
